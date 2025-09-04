@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gemini 图像对话 · 本地运行</title>
+    <style>
+      :root { color-scheme: light dark; }
+      :root { --bg: #0b0f14; --fg: #e6edf3; --muted: #9aa7b2; --primary: #58a6ff; --accent: #1f6feb; --surface: #11161c; --bubble-user: #1d2936; --bubble-ai: #0f1720; --border: #263241; }
+      @media (prefers-color-scheme: light) {
+        :root { --bg: #f7f9fc; --fg: #0f172a; --muted: #5b6b7a; --primary: #0b5fff; --accent: #0a4bd9; --surface: #ffffff; --bubble-user: #e9f2ff; --bubble-ai: #f1f5f9; --border: #d2d9e1; }
+      }
+      * { box-sizing: border-box; }
+      body { background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "PingFang SC", "Microsoft Yahei", sans-serif; margin: 0; }
+      .app { height: 100dvh; display: grid; grid-template-rows: auto 1fr auto; }
+      header { padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 1; }
+      .container { width: 100%; max-width: 860px; margin: 0 auto; }
+      header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+      header .hint { color: var(--muted); font-size: 12px; }
+      .chat { padding: 16px; overflow: auto; display: flex; justify-content: center; }
+      .chat-inner { width: 100%; max-width: 860px; }
+      .msg { display: flex; gap: 12px; margin-bottom: 14px; }
+      .msg .avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--border); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; }
+      .msg .bubble { max-width: min(760px, 100%); padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); }
+      .msg.user .bubble { background: var(--bubble-user); }
+      .msg.assistant .bubble { background: var(--bubble-ai); }
+      .msg .content { white-space: pre-wrap; word-break: break-word; }
+      .msg .images { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; margin-top: 8px; }
+      .msg .images img { width: 100%; border-radius: 8px; display: block; }
+      .msg .img-actions { margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap; }
+      .msg .img-actions button { padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--fg); cursor: pointer; }
+      .composer { border-top: 1px solid var(--border); padding: 10px 16px; background: var(--surface); }
+      .row { display: flex; gap: 8px; align-items: flex-end; }
+      textarea { flex: 1; min-height: 48px; max-height: 180px; resize: vertical; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); }
+      .send { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; font-weight: 600; }
+      .send[disabled] { opacity: 0.6; cursor: not-allowed; }
+      .toolbar { display: flex; gap: 12px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+      .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bubble-user); }
+      .chip img { width: 18px; height: 18px; border-radius: 3px; }
+      .chip button { border: none; background: transparent; color: var(--muted); cursor: pointer; }
+      .paste-hint { color: var(--muted); }
+      /* typing dots */
+      .typing { display: inline-flex; gap: 4px; align-items: center; }
+      /* image viewer */
+      .viewer { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 10; }
+      .viewer img { max-width: 92vw; max-height: 92vh; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+      .typing .dot { width: 6px; height: 6px; background: var(--muted); border-radius: 50%; display: inline-block; animation: blink 1.2s infinite both; }
+      .typing .dot:nth-child(2) { animation-delay: .2s; }
+      .typing .dot:nth-child(3) { animation-delay: .4s; }
+      @keyframes blink { 0%, 80%, 100% { opacity: .25 } 40% { opacity: 1 } }
+    </style>
+  </head>
+  <body>
+    <div id="viewer" class="viewer"><img id="viewerImg" alt="预览" /></div>
+    <div class="app">
+      <header>
+        <div class="container">
+          <h1>Gemini 图像对话</h1>
+          <div class="hint">支持多轮：输入文本，或直接 Ctrl+V 粘贴图片作为本轮附件（Enter 发送，Shift+Enter 换行）</div>
+          <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+            <select id="sessionSelect" style="flex:1; padding:6px 8px; border-radius:8px; border:1px solid var(--border); background: var(--bg); color: var(--fg);"></select>
+            <button id="newSession" class="send" title="新建会话">新建</button>
+            <button id="renameSession" class="send" title="重命名会话">重命名</button>
+            <button id="deleteSession" class="send" title="删除会话">删除</button>
+          </div>
+        </div>
+      </header>
+
+      <main id="chat" class="chat"><div id="chatInner" class="chat-inner"></div></main>
+
+      <section class="composer">
+        <div class="container">
+          <div class="row">
+            <textarea id="input" placeholder="说点什么，或粘贴一张图片..."></textarea>
+            <button id="send" class="send">发送</button>
+          </div>
+          <div class="toolbar">
+            <span class="paste-hint">提示：Ctrl+V 粘贴图片作为附件（支持多图）</span>
+            <div id="attachList" class="chips" style="display:none; display:flex; gap:8px; flex-wrap: wrap;"></div>
+            <span style="flex:1"></span>
+            <button id="clearAll" style="display:none" class="send" title="清空所有附件">清空附件</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const chatEl = document.getElementById('chat');
+      const chatInner = document.getElementById('chatInner');
+      const inputEl = document.getElementById('input');
+      const sendBtn = document.getElementById('send');
+      const attachList = document.getElementById('attachList');
+      const clearAllBtn = document.getElementById('clearAll');
+      const sessionSelect = document.getElementById('sessionSelect');
+      const newSessionBtn = document.getElementById('newSession');
+      const renameSessionBtn = document.getElementById('renameSession');
+      const deleteSessionBtn = document.getElementById('deleteSession');
+
+      let SESSION_ID = null;
+      let pendingImages = []; // Blob[] for next message
+
+      function scrollToBottom() { chatEl.scrollTop = chatEl.scrollHeight; }
+      function addMsg(role, text='') {
+        const wrap = document.createElement('div'); wrap.className = `msg ${role}`;
+        const avatar = document.createElement('div'); avatar.className = 'avatar'; avatar.textContent = role === 'user' ? 'U' : 'A';
+        const bubble = document.createElement('div'); bubble.className = 'bubble';
+        const content = document.createElement('div'); content.className = 'content'; content.textContent = text;
+        const images = document.createElement('div'); images.className = 'images';
+        const imgActions = document.createElement('div'); imgActions.className = 'img-actions';
+        bubble.appendChild(content); bubble.appendChild(images); bubble.appendChild(imgActions);
+        wrap.appendChild(avatar); wrap.appendChild(bubble);
+        chatInner.appendChild(wrap); scrollToBottom();
+        return { wrap, content, images, imgActions };
+      }
+
+      function toDataURL(mime, base64) { return `data:${mime};base64,${base64}`; }
+      async function copyDataUrlAsImage(dataUrl, mime) {
+        const res = await fetch(dataUrl); const blob = await res.blob();
+        await navigator.clipboard.write([ new ClipboardItem({ [mime]: blob }) ]);
+      }
+
+      const viewer = document.getElementById('viewer');
+      const viewerImg = document.getElementById('viewerImg');
+      function openViewer(url) { viewerImg.src = url; viewer.style.display = 'flex'; }
+      function closeViewer() { viewer.style.display = 'none'; viewerImg.src=''; }
+      viewer.addEventListener('click', (e)=>{ if (e.target === viewer) closeViewer(); });
+      window.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeViewer(); });
+
+      function showTyping(el) {
+        el.innerHTML = '<span class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>';
+      }
+      function clearTyping(el) {
+        if (el.querySelector('.typing')) el.textContent = '';
+      }
+
+      function renderAttachmentChips() {
+        attachList.innerHTML = '';
+        if (pendingImages.length === 0) { attachList.style.display = 'none'; clearAllBtn.style.display = 'none'; return; }
+        attachList.style.display = 'flex'; clearAllBtn.style.display = 'inline-block';
+        pendingImages.forEach((blob, i) => {
+          const url = URL.createObjectURL(blob);
+          const chip = document.createElement('span'); chip.className = 'chip';
+          const img = document.createElement('img'); img.src = url;
+          const span = document.createElement('span'); span.textContent = blob.type.split('/')[1] || 'image';
+          const btn = document.createElement('button'); btn.textContent = '移除'; btn.onclick = () => { pendingImages.splice(i,1); URL.revokeObjectURL(url); renderAttachmentChips(); };
+          chip.appendChild(img); chip.appendChild(span); chip.appendChild(btn);
+          attachList.appendChild(chip);
+        });
+      }
+
+      async function ensureSession() {
+        if (SESSION_ID) return SESSION_ID;
+        const r = await fetch('/session', { method: 'POST' });
+        const data = await r.json(); SESSION_ID = data.sessionId; await loadSessionList(SESSION_ID); return SESSION_ID;
+      }
+
+      async function loadSessionList(selectId) {
+        const r = await fetch('/sessions'); const data = await r.json();
+        sessionSelect.innerHTML = '';
+        for (const it of data.items) {
+          const opt = document.createElement('option'); opt.value = it.id; opt.textContent = `${it.title} · ${new Date(it.updatedAt).toLocaleString()}`;
+          sessionSelect.appendChild(opt);
+        }
+        if (selectId) sessionSelect.value = selectId;
+      }
+
+      async function loadSession(id) {
+        const r = await fetch(`/session/${id}`);
+        if (!r.ok) return;
+        const s = await r.json();
+        SESSION_ID = s.id;
+        chatInner.innerHTML = '';
+        // Render history
+        for (const m of s.history) {
+          const bubble = addMsg(m.role === 'user' ? 'user' : 'assistant', '');
+          for (const p of m.parts || []) {
+            if (p.text) { bubble.content.textContent += p.text; }
+            if (p.inlineData && p.inlineData.data) {
+              const url = toDataURL(p.inlineData.mimeType || 'image/png', p.inlineData.data);
+              const img = document.createElement('img'); img.src = url; img.style.cursor='zoom-in'; img.onclick = () => openViewer(url); bubble.images.appendChild(img);
+              if (m.role === 'model') {
+                const btn = document.createElement('button'); btn.textContent = '复制图片'; btn.onclick = () => copyDataUrlAsImage(url, p.inlineData.mimeType || 'image/png');
+                bubble.imgActions.appendChild(btn);
+              }
+            }
+          }
+        }
+        scrollToBottom();
+        await loadSessionList(SESSION_ID);
+        sessionSelect.value = SESSION_ID;
+      }
+
+      async function sendMessage() {
+        const text = inputEl.value.trim();
+        if (!text && pendingImages.length === 0) return;
+        await ensureSession();
+
+        // Render user bubble immediately
+        const userBubble = addMsg('user', text);
+        if (pendingImages.length > 0) {
+          for (const blob of pendingImages) {
+            const url = URL.createObjectURL(blob);
+          const img = document.createElement('img'); img.src = url; img.style.cursor='zoom-in'; img.onclick = () => openViewer(url); userBubble.images.appendChild(img);
+          }
+        }
+
+        // Prepare FormData
+        const fd = new FormData(); fd.append('sessionId', SESSION_ID); if (text) fd.append('text', text);
+        if (pendingImages.length > 0) {
+          for (const blob of pendingImages) {
+            fd.append('image', blob, 'attach.' + (blob.type.split('/')[1] || 'png'));
+          }
+        }
+
+        // Clear input state
+        inputEl.value = '';
+        pendingImages = [];
+        renderAttachmentChips();
+
+        // Create assistant placeholder bubble
+        const asst = addMsg('assistant', '');
+        showTyping(asst.content);
+        sendBtn.disabled = true; inputEl.disabled = true;
+
+        // Send message then stream response
+        const resp = await fetch('/message', { method: 'POST', body: fd });
+        if (!resp.ok) {
+          asst.content.textContent = '发送失败：' + (await resp.text());
+          return;
+        }
+        const { turn } = await resp.json();
+        const es = new EventSource(`/stream/session/${SESSION_ID}`);
+        let gotFirst = false;
+        es.addEventListener('status', (e) => { /* 可选显示状态 */ });
+        es.addEventListener('text', (e) => {
+          if (!gotFirst) { clearTyping(asst.content); gotFirst = true; }
+          const data = JSON.parse(e.data); asst.content.textContent += (data.delta || ''); scrollToBottom();
+        });
+        es.addEventListener('image', (e) => {
+          if (!gotFirst) { clearTyping(asst.content); gotFirst = true; }
+          const data = JSON.parse(e.data); const url = toDataURL(data.mimeType, data.data);
+          const img = document.createElement('img'); img.src = url; img.style.cursor='zoom-in'; img.onclick = () => openViewer(url); asst.images.appendChild(img);
+          const btn = document.createElement('button'); btn.textContent = '复制图片'; btn.onclick = () => copyDataUrlAsImage(url, data.mimeType);
+          asst.imgActions.appendChild(btn); scrollToBottom();
+        });
+        es.addEventListener('error', () => { clearTyping(asst.content); sendBtn.disabled = false; inputEl.disabled = false; es.close(); });
+        es.addEventListener('done', async () => { if (!gotFirst) clearTyping(asst.content); sendBtn.disabled = false; inputEl.disabled = false; es.close(); await loadSessionList(SESSION_ID); });
+      }
+
+      // Paste image to attach to next message
+      document.addEventListener('paste', (e) => {
+        const items = e.clipboardData && e.clipboardData.items; if (!items) return;
+        let added = 0;
+        for (const it of items) {
+          if (it.kind === 'file' && it.type.startsWith('image/')) {
+            const file = it.getAsFile(); if (file) { pendingImages.push(file); added++; }
+          }
+        }
+        if (added > 0) { e.preventDefault(); renderAttachmentChips(); }
+      });
+
+      // Clear all attachments
+      clearAllBtn.addEventListener('click', () => { pendingImages = []; renderAttachmentChips(); });
+
+      // Send button and Enter key behavior
+      sendBtn.addEventListener('click', sendMessage);
+      inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+      });
+
+      // Session controls
+      newSessionBtn.addEventListener('click', async () => {
+        const r = await fetch('/session', { method: 'POST' });
+        const data = await r.json();
+        await loadSession(data.sessionId);
+      });
+      renameSessionBtn.addEventListener('click', async () => {
+        if (!SESSION_ID) return;
+        const title = prompt('输入新会话名：'); if (!title) return;
+        await fetch(`/session/${SESSION_ID}/rename`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) });
+        await loadSessionList(SESSION_ID);
+      });
+      deleteSessionBtn.addEventListener('click', async () => {
+        if (!SESSION_ID) return;
+        if (!confirm('确定删除当前会话？此操作不可撤销。')) return;
+        await fetch(`/session/${SESSION_ID}`, { method: 'DELETE' });
+        SESSION_ID = null;
+        await ensureSession();
+        await loadSessionList(SESSION_ID);
+      });
+      sessionSelect.addEventListener('change', async (e) => {
+        const id = e.target.value; if (id) await loadSession(id);
+      });
+
+      // Init session on load
+      (async () => { await ensureSession(); await loadSessionList(SESSION_ID); sessionSelect.value = SESSION_ID; })();
+    </script>
+  </body>
+</html>
