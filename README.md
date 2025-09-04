@@ -1,4 +1,5 @@
-# genai-image-streamer
+# nano-banana套壳
+<img width="1801" height="1734" alt="PixPin_2025-09-02_19-53-13" src="https://github.com/user-attachments/assets/d46a41f0-4892-41c4-81a3-79b032239186" />
 
 一个本地运行的多轮对话图像生成小工具（Node.js + Express + @google/genai）。
 
@@ -48,4 +49,5 @@
 
 许可
 - 请选择并添加适合你的开源许可证（例如 MIT、Apache-2.0 等）。
+
 
